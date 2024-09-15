@@ -13,7 +13,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 
 # This is the "setup" chunk. It is best practice to specify all the packages you will use here.
 
@@ -23,7 +23,9 @@ require(pacman)
 # now load packages
 p_load(
   tidyverse, # for data management
-  lme4 # for multilevel modelling
+  lme4, # for multilevel modelling
+  ggcorrplot, # for plotting correlations
+  ggsignif
 )
 ```
 
@@ -160,7 +162,7 @@ ds <- ds %>%
 Now the question is how could one combine the E scores. Usually, you want to built the SR score based on the most information available, meaning all types of available stressors. There are two options: you could simply sum all items)
 
 1. you could sum all items. This works when all stressors are measured or coded the same way (for example all of them indicate occurrence). This would mean that if the type of stressors are not equally represented, the one type for which there are more items will be weighted more. In our example, there are more CE (29 items) then general stressors (11 items). 
-2. you could create a mean of the scaled sum scores. this would allow both type of stressors to be equally weighted. This is the approach we have used in MARP and LORA which is described in the [FRESHMO paper](). 
+2. you could create a mean of the scaled sum scores. this would allow both type of stressors to be equally weighted. This is the approach we have used in MARP and LORA which is described in the [FRESHMO paper](https://www.frontiersin.org/articles/10.3389/fpsyg.2021.710493). 
 
       Task 1.1.3: create a scaled combined E score (E_scaled)
 
@@ -184,7 +186,7 @@ dplyr::group_by(subject.ID) %>%
 #### 1.1.4 per timepoint/over time periods
 
 SR is expected to be quite stable and change over longer periods of times. That is a sudden or short change in SR is usually not indicative of less resilient outcomes, rather it is the SR over longer time periods that is more informative on the resilience of participants. 
-Consequently, in longitudinal studies we are often interested in longer time periods rather than single time points. For example in the longitudinal samples MARP and LORA we look at period of 9 months to ca. 3.5 years [see Petri-Romão et al.](). 
+Consequently, in longitudinal studies we are often interested in longer time periods rather than single time points. For example in the longitudinal samples MARP and LORA we look at period of 9 months to ca. 3.5 years [see Petri-Romão et al.](https://osf.io/dgx4k). 
 For this purpose we create the mean stressor exposure and mean P in the time period of interest. 
 
       Task 1.1.4a: Create mean E scores (Eg_t1.t6, Ec_t1.t6) across all timepoints
@@ -313,10 +315,13 @@ We want to choose an E score based on a robust (that is high and interpretable) 
 
 
 ```{r solution_choosingE}
+# here we just calculate all the different correlations
 ds %>%  
   ungroup() %>% 
   select(E,E_scaled, Ec, Eg, P) %>% 
   cor(., use="pairwise.complete.obs")
+
+# here we plot the correlations with ggcorrplot
 ds %>%  
   ungroup() %>% 
   select(E,E_scaled, Ec, Eg, P) %>% 
@@ -325,12 +330,13 @@ ds %>%
                           show.legend = TRUE, type="lower", method = "circle", lab=TRUE,
                           ggtheme = ggplot2::theme_classic)
 
+# here we calculate the correlations of the average E and P in t1-t6
 ds %>%  
   ungroup() %>% 
   select(E_t1.t6, Ec_t1.t6, Eg_t1.t6,E_t1.t6_scaled, P_t1.t6) %>% 
   cor(., use="pairwise.complete.obs")
 
-
+# here we plot again
 ds %>%  
   ungroup() %>% 
   select(E_t1.t6, Ec_t1.t6, Eg_t1.t6,E_t1.t6_scaled, P_t1.t6)%>%  
@@ -357,7 +363,7 @@ _in specific times, such as the pandemic, we might have hypotheses regarding the
 * which E score would you use?
 _for simplicity we will proceed with E and E_t1.t6 without scaling_
 
-## 2 TODO FROM HERE Model for normative stressor reactivity
+## 2 Model for normative stressor reactivity
 
 The basis of the SR score for each individual is the presumed normative relationship between E and P, that is the normative reactivity in terms of mental health problems to the exposure of stressors. 
 In this part we will calculate the normative E~P line. 
@@ -375,7 +381,7 @@ However, in longitudinal samples you can either use multilevel modelling or choo
 
 In ongoing studies we have so far used the second appraoch, that is averaging over time points and building simple models. 
 
-In studies where you compare different time points, for example intervention studies, we have chosen multilevel modelling (see [Petri-Romão et al. (2024)]())
+In studies where you compare different time points, for example intervention studies, we have chosen multilevel modelling (see [Petri-Romão et al. (2024)](https://osf.io/dgx4k))
 
 #### 2.1.1 simple modelling
 
@@ -417,7 +423,7 @@ EP_multi <- ds %>%
   # to create a multilevel model we must specify that there are repeated measurements for each participant. For this we group the dataframe
   group_by(subject.ID) %>% 
   # specify a model with a random effect for each subject
-  lme4::lmer(scale(P)~scale(E)+ (1|subject.ID),data=.) %>% 
+  lme4::lmer(scale(P)~scale(E)+ (1+scale(E)|subject.ID),data=.) %>% 
   summary()
 
 EP_multi
@@ -427,26 +433,52 @@ EP_multi
 
 ### 2.2 linear vs quadratic
 
-As specified in the FRESHMO paper [Kalisch et al.](), the relationship between E and P is mostly linear, but could also be quadratic. 
+As specified in the FRESHMO paper [Kalisch et al.](https://www.frontiersin.org/articles/10.3389/fpsyg.2021.710493), the relationship between E and P is mostly linear, but could also be quadratic. 
 It is best practice to test whether the linear or quadratic relationship is the best fit. 
 
-```{r solution_linquad}
+      Task 2.2 Test wether the E/P relationship is best described with a linear or quadratic model. This is best done with an anova. Interpret the result. You can do so with the simple or multilevel models. 
 
+```{r solution_linquad}
+# when comparing models it's important that you build them with the same syntax, so that the anova understands that they are comparable
+
+# building the linear model 
 EP_lin <- ds%>%
   group_by(subject.ID) %>%
 lm(P_t1.t6~poly(E_t1.t6,1, raw =TRUE),data=.) 
 
+# building the quadratic model
 EP_quad <- ds%>%
   group_by(subject.ID) %>%
 lm(P_t1.t6~poly(E_t1.t6,2, raw =TRUE),data=.) 
 
+# run an anova comparing the model
+anova(EP_lin, EP_quad,test="Chisq")
+# The anova comes back with a stat. signif. difference between the models, saying that the quadratic model is stat. better than the linear one. 
 
-anova(EP_lin, EP_quad)
+
+#### multilevel ###
+
+# building the linear model 
+EP_lin_multi <- ds%>%
+  group_by(subject.ID) %>%
+  lme4::lmer(scale(P)~poly(scale(E),1, raw = TRUE)+(1+scale(E)|subject.ID),data=.)
+
+# building the quadratic model
+EP_quad_multi <- ds%>%
+  group_by(subject.ID) %>%
+lme4::lmer(scale(P)~poly(scale(E),2, raw = TRUE)+(1+scale(E)|subject.ID),data=.)
+
+# run an anova comparing the model
+anova(EP_lin_multi, EP_quad_multi,test="Chisq")
+# The anova says that there is no stat. signif. difference between the models
 ```
 
 #### 2.2.1 plot 
 
-```{r}
+To further understand the relationship it can also be useful to plot the E/P lines. Here it would be possible to identify outliers as well (the treatment of outliers is explained in the next advanced part of the script)
+
+        Task 2.2.1 Plot the E/P relationship twice. Once with fitting a linear line and once fitting a quadratic line onto the squatterplot. 
+```{r solution_plotline}
 
 # plot a linear relationship
 plotlin <-  ds %>% 
@@ -473,63 +505,111 @@ plotquad
 ```
 
 
+
 ### 2.3 explained variance
 
 As a way of testing the quality of your model you can analyse the explained variance of the model
 
+      Task 2.3 Calculate the R2 of the linear and quadratic model we have just compared. 
+
+```{r solution_rsquared}
+# R squared of the linear model previously calculated
+summary(EP_lin)$adj.r.squared
+
+# R squared of the quadratic model previously calculated
+summary(EP_quad)$adj.r.squared
+```
+
+
 ### 2.4 decide on model
+
+Things to consider
+
+*Are you interested in an average time period or single timepoints?
+*Is your study concluded or not?
+*Which model best describes the relationship (linear or quadratic?)
+*Are there outliers that could be affecting the fit? (See advanced script)
 
 ## 3 calculate SR score 
 
-### 3.1 over entire time period
+We will calculate different SR scores heres to showcase how the SR score is calculated. 
+
+### 3.1 single time points
+
+If you want to calculate SR scores for each assessment you need to base it on the multilevel model. Our assessment revealed, that the linear model best describes the relationship. 
 
 #### 3.1.1 extract intercept and slope
-```{r}
-intercept  <- EP_norm$coefficients[1]
-E_slope  <- EP_norm$coefficients[2]
-```
-#### 3.1.2 predicted P
 
-```{r}
- ds$P_t1.t6_pred<- intercept  + scale(ds$E_t1.t6)*E_slope  
-```
-#### 3.1.3 SR score
-```{r}
- ds$sr_t1.t6<- scale(scale(ds$P_t1.t6) - ds$P_t1.t6_pred)
-```
-### 3.2 single time points
+We therefore need to extract the intercept and slope from the multilevel model.
 
-#### 3.2.1 extract intercept and slope
-```{r}
+      Task 3.1.1 Save the intercept and slope from the multilevel model (2.1.2) in separate objects. 
+      
+```{r solution_slope}
 intercept_multi  <- EP_multi$coefficients[1]
 E_slope_multi  <- EP_multi$coefficients[2]
 ```
-#### 3.2.2 predicted P
 
-```{r}
+#### 3.1.2 predicted P
+
+We use the extracted intercept and slope to calculate the predicted P based on their E, using a linear equation (y=slope*x+intercept)
+
+The E in the equation needs to be scaled. 
+
+      Task 3.1.2 Calculate the predicted P based on a linear equation, store it as a variable in the dataset
+      
+```{r solution_predPmulti}
  ds$P_pred_multi<- intercept_multi  + scale(ds$E)*E_slope_multi  
 ```
-#### 3.2.3 SR score
-```{r}
- ds$sr_single<- scale(scale(ds$P) - ds$P_pred_multi)
+
+#### 3.1.3 SR score
+
+The SR score is then the difference between the actual P and the predicted P, that is the residual of each P to the normative E/P line. 
+
+      Task 3.1.3 Calculate the difference between actual P and predicted P for each participant
+      
+```{r solution_sr}
+ ds$SR<- scale(scale(ds$P) - ds$P_pred_multi)
 ```
 
-### extra - based on quadratic model
-```{r}
-intercept_quad  <- EP_quad$coefficients[1]
+### 3.2 over entire time period
+
+If we want an SR score over the entire time period than we calculate it on the basis on the model in 2.1.1. Our calculations, however, showed that the quadratic model is the best fit (2.2). 
+
+#### 3.2.1 extract intercept and slope
+First, we need to extract the intercept and slopes (in a quadratic model there are two slopes)
+
+```{r solution_slopeovertime}
+intercept_t1t6  <- EP_quad$coefficients[1]
 E_slope_b  <- EP_quad$coefficients[2]
 E_slope_a  <- EP_quad$coefficients[3]
-
-```
-```{r}
- ds$P_t1.t6_pred_quad <- intercept_quad  + scale(ds$E_t1.t6)*E_slope_b  + (scale(ds$E_t1.t6)^2)*E_slope_a  
 ```
 
-```{r}
- ds$sr_t1.t6_quad<- scale(scale(ds$P_t1.t6) - ds$P_t1.t6_pred_quad)
+#### 3.1.2 predicted P
+
+We then calculate the predicted P base on the quadratic equation. (y=slopeA*x^2+slopeB*x+intercept)
+
+      Task 3.1.2 Calculate the predicted P based on a quadratic equation, store it as a variable in the dataset
+
+```{r solution_predpovertime}
+ ds$P_t1.t6_pred <- intercept_t1t6  + scale(ds$E_t1.t6)*E_slope_b  + (scale(ds$E_t1.t6)^2)*E_slope_a  
 ```
+
+#### 3.1.3 SR score
+
+We then again, calculate the difference between actual P and predicted P. 
+
+      Task 3.1.3 Calculate the difference between actual P and predicted P for each participant
+      
+```{r}
+ ds$SR_t1.t6<- scale(scale(ds$P_t1.t6) - ds$P_t1.t6_pred)
+```
+
 
 ## 4 Why SR? - SR over time
+
+As an illustration as to why the SR score can offer valuable insights into resilience, we will now examine E, P and SR over time. 
+
+      Task 4: Plot E, P and SR over all 6 time points (separate plots for each variable). Then test the difference between time point 1 and time point 6 to see whether E, P and SR change significantly over time. (you could do this within your plot with ggsignif)
 
 ```{r}
 
@@ -572,7 +652,7 @@ e_plot <-  ds %>%
 sr_plot <-  ds %>%  
   ggplot(
     aes(
-      y = sr_single,
+      y = SR,
       x = factor(beep),
       fill = beep)
     ) +
@@ -593,4 +673,7 @@ sr_plot
 
 ggpubr::ggarrange(p_plot, e_plot, sr_plot, nrow = 1)
 ```
+
+We can see that the change and E and P are significant, but SR is not. Likely the changes in P are explained by changes in E, by controlling for E we can disentangle the causes of these changes.
+
 
